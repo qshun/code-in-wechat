@@ -6,11 +6,11 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc",
+    "build": "tsc && tsc-alias",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "tsc --noEmit",
-    "start": "node dist/index.js"
+    "start": "bun dist/index.js"
   },
   "dependencies": {
     "@opencode-ai/sdk": "latest",
@@ -20,6 +20,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.14.9",
+    "tsc-alias": "^1.8.16",
     "tsx": "^4.15.7",
     "typescript": "^5.5.2",
     "vitest": "^1.6.0"
