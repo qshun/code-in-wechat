@@ -80,6 +80,7 @@ export class MessageBridge implements StatusProvider {
   private processing = false;
   private started = false;
   private startTime = 0;
+  private lastMessageAt: number | undefined;
 
   constructor(
     client: iLinkClient,
@@ -127,6 +128,8 @@ export class MessageBridge implements StatusProvider {
     });
 
     this.sessionManager.on("command", (cmd: SlashCommand, msg: WeChatMessage) => {
+      this.lastMessageAt = Date.now();
+      this.sessionManager.incrementMessageCount(msg.from_user_id);
       this.handleSlashCommand(cmd, msg).catch((err) => {
         logger.error("Error handling slash command", { error: err });
       });
@@ -229,6 +232,8 @@ export class MessageBridge implements StatusProvider {
       return;
     }
     this.markProcessed(msgId);
+    this.lastMessageAt = Date.now();
+    this.sessionManager.incrementMessageCount(msg.from_user_id);
 
     try {
       // Step 2: Cache context_token
@@ -504,18 +509,32 @@ export class MessageBridge implements StatusProvider {
   // -----------------------------------------------------------------------
 
   getBotStatus() {
-    return {
+    const status = {
       online: this.started,
       uptime: this.started ? Date.now() - this.startTime : 0,
-      lastMessageAt: undefined,
+      lastMessageAt: this.lastMessageAt,
+      polling: this.sessionManager?.getPollingInfo(),
     };
+    logger.debug("getBotStatus called", {
+      online: status.online,
+      lastMessageAt: status.lastMessageAt,
+      pollingActive: status.polling?.isActive,
+      pollCount: status.polling?.pollCount,
+    });
+    return status;
   }
 
   getSessions() {
-    return [];
+    const sessions = this.sessionManager?.getActiveSessions() ?? [];
+    logger.debug("getSessions called", { count: sessions.length, ids: sessions.map(s => s.id) });
+    return sessions;
   }
 
   getQRCode() {
-    return null;
+    return this.authFlow.getCurrentQRCode();
+  }
+
+  getPollingInfo() {
+    return this.sessionManager?.getPollingInfo();
   }
 }

@@ -92,6 +92,11 @@ export class AuthFlow {
     return this.state;
   }
 
+  /** Get the current QR code URL, if one is being displayed. */
+  getCurrentQRCode(): string | null {
+    return this.currentQRCode;
+  }
+
   /** Check if we have a valid saved bot_token file. */
   isAuthenticated(): boolean {
     // Synchronous check — we just verify the file exists and is non-empty.

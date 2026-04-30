@@ -29,6 +29,8 @@ export interface SessionState {
   expiresAt: number;
   sessionId?: string;
   lastActivity: number;
+  messageCount: number;
+  createdAt: number;
 }
 
 export interface SessionManagerOptions {
@@ -50,6 +52,15 @@ export class SessionManager extends EventEmitter {
   private cursor: string;
   private messageQueue: WeChatMessage[];
 
+  /** Timestamp of last successful poll (getUpdates that didn't throw). */
+  private lastPollAt: number | undefined;
+  /** Total number of successful poll cycles. */
+  private pollCount: number;
+  /** Total number of messages received across all polls. */
+  private totalMessagesReceived: number;
+  /** Total number of polling errors encountered. */
+  private pollErrorCount: number;
+
   constructor(client: iLinkClient, options: SessionManagerOptions) {
     super();
     this.client = client;
@@ -59,6 +70,10 @@ export class SessionManager extends EventEmitter {
     this.polling = false;
     this.cursor = "";
     this.messageQueue = [];
+    this.lastPollAt = undefined;
+    this.pollCount = 0;
+    this.totalMessagesReceived = 0;
+    this.pollErrorCount = 0;
   }
 
   // -----------------------------------------------------------------------
@@ -82,8 +97,13 @@ export class SessionManager extends EventEmitter {
         this.cursor = response.get_updates_buf;
         this.persistCursor(this.cursor);
 
-        if (response.msgs.length > 0) {
-          logger.info("Received messages from polling", { count: response.msgs.length, cursor: this.cursor });
+        this.lastPollAt = Date.now();
+        this.pollCount++;
+
+        this.totalMessagesReceived += response.msgs.length;
+
+        if (this.pollCount <= 3 || response.msgs.length > 0) {
+          logger.info("Polling cycle completed", { pollCount: this.pollCount, messages: response.msgs.length, cursor: this.cursor.substring(0, 20) + "..." });
         }
 
         // Queue all incoming messages
@@ -103,6 +123,7 @@ export class SessionManager extends EventEmitter {
           return;
         }
         // Non-fatal error: wait then retry
+        this.pollErrorCount++;
         logger.error("Polling error", { error: err instanceof Error ? { message: err.message, stack: err.stack } : err });
         await new Promise((resolve) => setTimeout(resolve, this.retryDelayMs));
       }
@@ -171,8 +192,50 @@ export class SessionManager extends EventEmitter {
       expiresAt: Date.now() + TTL_MS,
       sessionId: existing?.sessionId,
       lastActivity: Date.now(),
+      messageCount: existing?.messageCount ?? 0,
+      createdAt: existing?.createdAt ?? Date.now(),
     });
     logger.debug("Cached context_token", { userId, expiresAt: this.sessions.get(userId)!.expiresAt });
+  }
+
+  /**
+   * Increment the message count for a user's session.
+   * Creates a session entry if one doesn't exist yet.
+   */
+  incrementMessageCount(userId: string): void {
+    const state = this.sessions.get(userId);
+    if (state) {
+      state.messageCount++;
+      state.lastActivity = Date.now();
+    } else {
+      this.sessions.set(userId, {
+        contextToken: "",
+        expiresAt: Date.now() + 24 * 60 * 60 * 1000,
+        lastActivity: Date.now(),
+        messageCount: 1,
+        createdAt: Date.now(),
+      });
+    }
+  }
+
+  /**
+   * Get all active (non-expired) sessions.
+   * Returns an array of objects matching the web server's SessionInfo interface.
+   */
+  getActiveSessions(): Array<{ id: string; tool: string; messageCount: number; createdAt: number }> {
+    const now = Date.now();
+    const result: Array<{ id: string; tool: string; messageCount: number; createdAt: number }> = [];
+    for (const [userId, state] of this.sessions) {
+      if (now < state.expiresAt) {
+        result.push({
+          id: userId,
+          tool: "opencode",
+          messageCount: state.messageCount,
+          createdAt: state.createdAt,
+        });
+      }
+    }
+    return result;
   }
 
   /**
@@ -245,5 +308,28 @@ export class SessionManager extends EventEmitter {
     this.polling = false;
     this.messageQueue = [];
     this.emit("session-expired");
+  }
+
+  // -----------------------------------------------------------------------
+  // Diagnostic info
+  // -----------------------------------------------------------------------
+
+  /**
+   * Return polling diagnostics for the status dashboard.
+   */
+  getPollingInfo(): {
+    isActive: boolean;
+    lastPollAt: number | undefined;
+    pollCount: number;
+    totalMessagesReceived: number;
+    pollErrorCount: number;
+  } {
+    return {
+      isActive: this.polling,
+      lastPollAt: this.lastPollAt,
+      pollCount: this.pollCount,
+      totalMessagesReceived: this.totalMessagesReceived,
+      pollErrorCount: this.pollErrorCount,
+    };
   }
 }

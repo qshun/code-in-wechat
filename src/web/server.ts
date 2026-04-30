@@ -9,6 +9,14 @@ export interface BotStatus {
   online: boolean;
   uptime: number;
   lastMessageAt?: number;
+  /** Polling diagnostics — helps diagnose "no data" on the dashboard. */
+  polling?: {
+    isActive: boolean;
+    lastPollAt?: number;
+    pollCount: number;
+    totalMessagesReceived: number;
+    pollErrorCount: number;
+  };
 }
 
 export interface SessionInfo {
@@ -22,6 +30,13 @@ export interface StatusProvider {
   getBotStatus(): BotStatus;
   getSessions(): SessionInfo[];
   getQRCode(): string | null;
+  getPollingInfo?(): {
+    isActive: boolean;
+    lastPollAt: number | undefined;
+    pollCount: number;
+    totalMessagesReceived: number;
+    pollErrorCount: number;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -45,6 +60,17 @@ function renderStatusPage(
 
   const lastMessageDisplay = status.lastMessageAt
     ? new Date(status.lastMessageAt).toLocaleString()
+    : "N/A";
+
+  const pollInfo = status.polling;
+  const pollingStatusText = pollInfo
+    ? (pollInfo.isActive ? "Active" : "Stopped")
+    : "Unknown";
+  const pollingStatusColor = pollInfo
+    ? (pollInfo.isActive ? "#22c55e" : "#ef4444")
+    : "#f59e0b";
+  const lastPollDisplay = pollInfo?.lastPollAt
+    ? new Date(pollInfo.lastPollAt).toLocaleString()
     : "N/A";
 
   const sessionRows =
@@ -195,8 +221,35 @@ function renderStatusPage(
         <div class="stat-label">Sessions</div>
         <div class="stat-value">${sessions.length}</div>
       </div>
+      <div class="stat-item">
+        <div class="stat-label">Polling</div>
+        <div class="stat-value" style="color:${pollingStatusColor}">${pollingStatusText}</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-label">Last Poll</div>
+        <div class="stat-value">${lastPollDisplay}</div>
+      </div>
     </div>
   </div>
+
+  ${pollInfo ? `
+  <div class="card">
+    <h2>Polling Details</h2>
+    <div class="stat-grid">
+      <div class="stat-item">
+        <div class="stat-label">Poll Cycles</div>
+        <div class="stat-value">${pollInfo.pollCount}</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-label">Messages Received</div>
+        <div class="stat-value">${pollInfo.totalMessagesReceived}</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-label">Poll Errors</div>
+        <div class="stat-value">${pollInfo.pollErrorCount}</div>
+      </div>
+    </div>
+  </div>` : ""}
 
   ${qrSection}
 
@@ -233,6 +286,9 @@ export function createWebServer(
   const app = new Hono();
 
   app.get("/", (c) => {
+    c.header("Cache-Control", "no-cache, no-store, must-revalidate");
+    c.header("Pragma", "no-cache");
+    c.header("Expires", "0");
     const status = statusProvider.getBotStatus();
     const sessions = statusProvider.getSessions();
     const qrCode = statusProvider.getQRCode();
@@ -241,11 +297,13 @@ export function createWebServer(
   });
 
   app.get("/api/status", (c) => {
+    c.header("Cache-Control", "no-cache, no-store, must-revalidate");
     const status = statusProvider.getBotStatus();
     return c.json(status);
   });
 
   app.get("/api/sessions", (c) => {
+    c.header("Cache-Control", "no-cache, no-store, must-revalidate");
     const sessions = statusProvider.getSessions();
     return c.json(sessions);
   });
