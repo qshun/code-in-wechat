@@ -1,0 +1,27 @@
+services:
+  code-in-wechat:
+    build: .
+    container_name: code-in-wechat
+    restart: unless-stopped
+    ports:
+      - "${SERVER_PORT:-3000}:${SERVER_PORT:-3000}"
+    environment:
+      - ILINK_BASE_URL=${ILINK_BASE_URL:-https://ilinkai.weixin.qq.com}
+      - OPENCODE_PORT=${OPENCODE_PORT:-4096}
+      - OPENCODE_HOSTNAME=${OPENCODE_HOSTNAME:-host.docker.internal}
+      - OPENCODE_MODEL=${OPENCODE_MODEL:-}
+      - OPENCODE_DIRECTORY=${OPENCODE_DIRECTORY:-/workspace}
+      - SERVER_PORT=${SERVER_PORT:-3000}
+      - SERVER_HOST=${SERVER_HOST:-0.0.0.0}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - BOT_TOKEN_PATH=/data/bot-token.json
+      - SESSION_DB_PATH=/data/session-db.json
+    volumes:
+      - app-data:/data
+      - ${WORKSPACE_DIR:-./workspace}:/workspace
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    working_dir: /workspace
+
+volumes:
+  app-data:

@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.git/
+.env
+.env.*
+*.log
+*.db
+coverage/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+bot-token.json
+session-db.json
+.sisyphus/
+docs/
