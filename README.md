@@ -52,7 +52,7 @@ cp .env.example .env
 最少只需配置：
 
 ```env
-# OpenCode 可用的模型
+# OpenCode 可用的模型，格式为：provider/model，可以在`~/.config/opencode/opencode.json`找一下
 OPENCODE_MODEL=xxx
 # 项目路径（OpenCode 和 Claude 共用）
 WORK_SPACE_DIR=/path/to/your/project
