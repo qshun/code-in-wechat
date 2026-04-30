@@ -253,7 +253,7 @@ describe("MessageBridge", () => {
     // Should have sent a message with help text
     expect(mockClient.sendMessage).toHaveBeenCalledTimes(1);
     const sentMsg = (mockClient.sendMessage as any).mock.calls[0][0];
-    expect(sentMsg.msg.item_list[0].text).toContain("Available commands");
+    expect(sentMsg.msg.item_list[0].text_item.text).toContain("Available commands");
   });
 
   // -----------------------------------------------------------------------
@@ -327,7 +327,7 @@ describe("MessageBridge", () => {
     // Should have sent a friendly error message
     expect(mockClient.sendMessage).toHaveBeenCalled();
     const sentMsg = (mockClient.sendMessage as any).mock.calls[0][0];
-    expect(sentMsg.msg.item_list[0].text).toBe("抱歉，编码工具暂时不可用，请稍后再试");
+    expect(sentMsg.msg.item_list[0].text_item.text).toBe("抱歉，编码工具暂时不可用，请稍后再试");
   });
 
   // -----------------------------------------------------------------------
@@ -539,6 +539,6 @@ describe("MessageBridge", () => {
 
     expect(mockClient.sendMessage).toHaveBeenCalledTimes(1);
     const sentMsg = (mockClient.sendMessage as any).mock.calls[0][0];
-    expect(sentMsg.msg.item_list[0].text).toContain("New conversation started");
+    expect(sentMsg.msg.item_list[0].text_item.text).toContain("New conversation started");
   });
 });

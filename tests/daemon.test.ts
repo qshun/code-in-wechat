@@ -20,44 +20,60 @@ import type { ToolAdapter } from "../src/tools/adapter";
 import { EventEmitter } from "events";
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Flush pending microtasks by yielding to the event loop multiple times. */
+async function flushMicrotasks(times = 10): Promise<void> {
+  for (let i = 0; i < times; i++) {
+    await new Promise<void>((resolve) => { resolve(); });
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Helpers — mock factories
 // ---------------------------------------------------------------------------
 
+interface MockBridge {
+  start: ReturnType<typeof vi.fn>;
+  stop: ReturnType<typeof vi.fn>;
+  getBotStatus: ReturnType<typeof vi.fn>;
+  getSessions: ReturnType<typeof vi.fn>;
+  getQRCode: ReturnType<typeof vi.fn>;
+  sessionManager: EventEmitter;
+}
+
 /** Create a mock MessageBridge with a controllable sessionManager emitter. */
-function createMockBridge(): MessageBridge & { sessionManager: EventEmitter } {
+function createMockBridge(): MockBridge {
   const sessionManager = new EventEmitter();
   return {
-    start: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
-    stop: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    start: vi.fn().mockResolvedValue(undefined),
+    stop: vi.fn().mockResolvedValue(undefined),
     getBotStatus: vi.fn().mockReturnValue({ online: true, uptime: 0 }),
     getSessions: vi.fn().mockReturnValue([]),
     getQRCode: vi.fn().mockReturnValue(null),
     sessionManager,
-  } as unknown as MessageBridge & { sessionManager: EventEmitter };
+  };
 }
 
 /** Create a mock AuthFlow. */
 function createMockAuthFlow(): AuthFlow {
   return {
-    login: vi.fn<() => Promise<AuthResult>>().mockResolvedValue({
+    login: vi.fn().mockResolvedValue({
       success: true,
       botToken: "test-token",
       baseUrl: "https://test.example.com",
     }),
-    restoreSession: vi
-      .fn<() => Promise<AuthResult>>()
-      .mockResolvedValue({ success: true }),
+    restoreSession: vi.fn().mockResolvedValue({ success: true }),
     isAuthenticated: vi.fn().mockReturnValue(true),
-    logout: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    logout: vi.fn().mockResolvedValue(undefined),
   } as unknown as AuthFlow;
 }
 
 /** Create a mock iLinkClient. */
 function createMockClient(): iLinkClient {
   return {
-    getUpdates: vi
-      .fn<() => Promise<any>>()
-      .mockResolvedValue({ ret: 0, msgs: [], get_updates_buf: "" }),
+    getUpdates: vi.fn().mockResolvedValue({ ret: 0, msgs: [], get_updates_buf: "" }),
     sendMessage: vi.fn().mockResolvedValue(undefined),
     sendTyping: vi.fn().mockResolvedValue(undefined),
     getConfig: vi.fn().mockResolvedValue({}),
@@ -71,13 +87,13 @@ function createMockClient(): iLinkClient {
 function createMockToolAdapter(): ToolAdapter {
   return {
     name: "test-adapter",
-    initialize: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    initialize: vi.fn().mockResolvedValue(undefined),
     createSession: vi.fn().mockResolvedValue({ id: "s1" }),
     sendMessage: vi.fn().mockResolvedValue({}),
     streamResponse: vi.fn().mockResolvedValue(undefined),
     abortSession: vi.fn().mockResolvedValue(undefined),
     getSessionInfo: vi.fn().mockResolvedValue({ id: "health-check" }),
-    dispose: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    dispose: vi.fn().mockResolvedValue(undefined),
   } as unknown as ToolAdapter;
 }
 
@@ -331,12 +347,8 @@ describe("Daemon", () => {
       daemon.on("retry", (e) => retryEvents.push(e));
 
       // start() will catch bridge.start() error and schedule first retry
-      const startPromise = daemon.start();
-
-      // Flush microtasks so the async start() can complete
-      await new Promise<void>((resolve) => {
-        resolve();
-      });
+      await daemon.start();
+      await flushMicrotasks();
 
       // The first retry should be scheduled
       // Advance time to trigger each retry
@@ -347,12 +359,7 @@ describe("Daemon", () => {
         vi.advanceTimersByTime(expectedDelays[i]);
 
         // Flush microtasks to allow async retry callback to execute
-        await new Promise<void>((resolve) => {
-          resolve();
-        });
-        await new Promise<void>((resolve) => {
-          resolve();
-        });
+        await flushMicrotasks();
       }
 
       // Check retry events were emitted with correct delays
@@ -545,8 +552,7 @@ describe("Daemon", () => {
       expect(daemon.getHealthStatus().ilinkAlive).toBe(true);
 
       vi.advanceTimersByTime(100);
-      await new Promise<void>((resolve) => { resolve(); });
-      await new Promise<void>((resolve) => { resolve(); });
+      await flushMicrotasks();
 
       expect(daemon.getHealthStatus().ilinkAlive).toBe(false);
 
@@ -571,8 +577,7 @@ describe("Daemon", () => {
       expect(daemon.getHealthStatus().opencodeAlive).toBe(true);
 
       vi.advanceTimersByTime(100);
-      await new Promise<void>((resolve) => { resolve(); });
-      await new Promise<void>((resolve) => { resolve(); });
+      await flushMicrotasks();
 
       expect(daemon.getHealthStatus().opencodeAlive).toBe(false);
 
@@ -596,8 +601,7 @@ describe("Daemon", () => {
       await daemon.start();
 
       vi.advanceTimersByTime(100);
-      await new Promise<void>((resolve) => { resolve(); });
-      await new Promise<void>((resolve) => { resolve(); });
+      await flushMicrotasks();
 
       // "session not found" is not a connection error, so adapter is alive
       expect(daemon.getHealthStatus().opencodeAlive).toBe(true);
@@ -623,8 +627,7 @@ describe("Daemon", () => {
       await daemon.start();
 
       vi.advanceTimersByTime(100);
-      await new Promise<void>((resolve) => { resolve(); });
-      await new Promise<void>((resolve) => { resolve(); });
+      await flushMicrotasks();
 
       expect(failedEvents.length).toBeGreaterThanOrEqual(1);
       expect(failedEvents[0].component).toBe("ilink");
@@ -700,20 +703,18 @@ describe("Daemon", () => {
       });
 
       await daemon.start();
+      await flushMicrotasks();
 
-      // The first retry is scheduled immediately after bridge.start() fails.
-      // We need to advance through each retry's delay.
       // Delays: 1ms (attempt 1), 2ms (attempt 2), 4ms (attempt 3)
       // After attempt 3 fails, retryCount=3 >= maxRetries=3 → fatalExit
-
       for (let i = 0; i < 3; i++) {
         const delay = 1 * Math.pow(2, i); // 1, 2, 4
         vi.advanceTimersByTime(delay);
-        // Flush microtasks for async retry callback
-        for (let j = 0; j < 5; j++) {
-          await new Promise<void>((resolve) => { resolve(); });
-        }
+        await flushMicrotasks();
       }
+
+      // Flush remaining microtasks for fatalExit to complete
+      await flushMicrotasks();
 
       // After maxRetries, fatalExit should be called
       expect(process.exit).toHaveBeenCalledWith(1);
@@ -737,14 +738,13 @@ describe("Daemon", () => {
       });
 
       await daemon.start();
+      await flushMicrotasks();
 
       // Advance through 4 retries (not yet at max)
       for (let i = 0; i < 4; i++) {
         const delay = 1 * Math.pow(2, i);
         vi.advanceTimersByTime(delay);
-        for (let j = 0; j < 5; j++) {
-          await new Promise<void>((resolve) => { resolve(); });
-        }
+        await flushMicrotasks();
       }
 
       // Not yet at max retries
@@ -752,9 +752,10 @@ describe("Daemon", () => {
 
       // Advance through the 5th retry
       vi.advanceTimersByTime(1 * Math.pow(2, 4)); // 16ms
-      for (let j = 0; j < 5; j++) {
-        await new Promise<void>((resolve) => { resolve(); });
-      }
+      await flushMicrotasks();
+
+      // Flush remaining microtasks for fatalExit
+      await flushMicrotasks();
 
       // Now at max retries
       expect(process.exit).toHaveBeenCalledWith(1);
@@ -778,21 +779,16 @@ describe("Daemon", () => {
       });
 
       await daemon.start();
+      await flushMicrotasks();
 
       // Exhaust retries
       for (let i = 0; i < 2; i++) {
         vi.advanceTimersByTime(1 * Math.pow(2, i));
-        await new Promise<void>((resolve) => { resolve(); });
-        await new Promise<void>((resolve) => { resolve(); });
+        await flushMicrotasks();
       }
 
-      // Advance to trigger the fatal exit
-      // retryCount=2 >= maxRetries=2, so scheduleRetry calls fatalExit
-      // The last retry callback will have called scheduleRetry which calls fatalExit
-      // Need to flush microtasks for the fatalExit async stop()
-      await new Promise<void>((resolve) => { resolve(); });
-      await new Promise<void>((resolve) => { resolve(); });
-      await new Promise<void>((resolve) => { resolve(); });
+      // Flush remaining microtasks for fatalExit to complete
+      await flushMicrotasks();
 
       expect(bridge.stop).toHaveBeenCalled();
       expect(process.exit).toHaveBeenCalledWith(1);
